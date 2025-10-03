@@ -1,0 +1,8 @@
+[project]
+name = "vectordir"
+version = "0.3.0"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+vectordir = "vectordir.cli:main"

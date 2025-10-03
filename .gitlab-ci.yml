@@ -1,0 +1,44 @@
+stages:
+  - docker_build
+.build_template:
+  stage: docker_build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == "main" ]]; then
+        tag=""
+        echo "Running on default branch 'main': tag = 'latest'"
+      else
+        tag=":$CI_COMMIT_REF_SLUG"
+        echo "Running on branch '$CI_COMMIT_BRANCH': tag = $tag"
+      fi
+    - docker build --pull -f .build/Dockerfile -t "$TARGET_IMAGE$tag" .
+    - docker push "$TARGET_IMAGE$tag"
+
+# GitLab registry
+docker-build:
+  extends: .build_template
+  variables:
+    TARGET_IMAGE: $CI_REGISTRY_IMAGE
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - exists: [.build/Dockerfile]
+
+# Docker Hub
+docker-build-dockerhub:
+  extends: .build_template
+  variables:
+    TARGET_IMAGE: $DOCKERHUB_IMAGE
+  before_script:
+    - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USER" --password-stdin
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev"'
+    - if: $DOCKERHUB_USER != null && $DOCKERHUB_PASSWORD != null && $DOCKERHUB_IMAGE != null
+    - exists: [.build/Dockerfile]

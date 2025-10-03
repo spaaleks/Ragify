@@ -1,0 +1,123 @@
+# Global configuration
+global:
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key: "sk-..."  # Actual API key (no environment variable)
+  embedding_model: "text-embedding-3-small"
+  chat_model: "gpt-4o-mini"
+  max_retries: 3
+
+  # Global bearer token for API access
+  token: "super-secret-global-token"
+
+  # Global chunking defaults (overridable per folder/webhook)
+  chunking:
+    size: 1200
+    overlap: 150
+
+  # Optional OCR service for PDFs
+  pdf_ocr:
+    url: "http://localhost:31800/convert"
+    user: "ocruser"
+    password: "ocrpass"
+    timeout: 300
+
+  # Optional S3 storage (overridable per folder/webhook)
+  s3:
+    endpoint_url: "http://minio:9000"
+    region: "us-east-1"
+    access_key: "minio"
+    secret_key: "minio123"
+    bucket: "ocr-images"
+    prefix: "uploads/"
+    public_url_base: "http://localhost:9000/ocr-images"
+
+# Model registry
+models:
+  text-embedding-3-small:
+    provider: "openai"
+    dim: 1536
+  text-embedding-004:
+    provider: "gemini"
+    dim: 768
+    api_key: "AI..."  # Actual Gemini API key
+  vertex-embedding-001:
+    provider: "vertex_ai"
+    dim: 768
+    project: "my-gcp-project"
+    location: "us-central1"
+
+# Scheduler defaults (global, can be overridden per folder)
+scheduler:
+  every_minutes: 60
+  # cron: "0 * * * *"   # alternative cron style
+
+# Folders to index
+folders:
+  - name: "docs_a"
+    path: "./data/docs/a"
+    db:
+      host: "localhost"
+      port: 5432
+      user: "postgres"
+      password: "postgres"
+      database: "vectordb"
+    openai:
+      base_url: "https://api.openai.com/v1"
+      api_key: "sk-..."  # Optional override
+    embedding_model: "text-embedding-3-small"
+    chat_model: "gpt-4o-mini"
+    tag_generator: "./taggers/custom_tagger.py:CustomTagger"
+    scheduler:
+      every_minutes: 30
+    s3:
+      endpoint_url: "http://minio:9000"
+      region: "us-east-1"
+      access_key: "minio"
+      secret_key: "minio123"
+      bucket: "ocr-images"
+      prefix: "docs_a/"
+      public_url_base: "http://localhost:9000/ocr-images"
+    chunking:
+      size: 1024
+      overlap: 128
+    max_retries: 5
+
+  - name: "docs_b"
+    path: "/absolute/path/to/docs_b"
+    db:
+      host: "localhost"
+      port: 5432
+      user: "postgres"
+      password: "postgres"
+      database: "vectordb"
+    embedding_model: "text-embedding-004"   # override to Gemini
+    max_retries: 2
+
+# Webhooks
+webhooks:
+  - name: "incoming_api"
+    token: "super-secret-jwt-token"
+    db:
+      host: "localhost"
+      port: 5432
+      user: "postgres"
+      password: "postgres"
+      database: "vectordb"
+    openai:
+      base_url: "https://api.openai.com/v1"
+      api_key: "sk-..."  # Optional override
+    embedding_model: "text-embedding-3-small"
+    chat_model: "gpt-4o-mini"
+    s3:
+      endpoint_url: "http://minio:9000"
+      region: "us-east-1"
+      access_key: "minio"
+      secret_key: "minio123"
+      bucket: "webhook-uploads"
+      prefix: "api/"
+      public_url_base: "http://localhost:9000/webhook-uploads"
+    chunking:
+      size: 800
+      overlap: 100
+    max_retries: 3

@@ -1,0 +1,19 @@
+rules:
+  - pattern: "(?i)\\binvoice\\b"
+    tag: "invoice"
+  - pattern: "(?i)\\bcontract\\b"
+    tag: "contract"
+  - pattern: "(?i)\\b20\\d{2}\\b"
+    extract: true
+    prefix: "year:"
+  - pattern: "(?i)/clients/([^/]+)/"
+    group: 1
+    prefix: "client:"
+ext_map:
+  ".pdf": "ext:pdf"
+  ".md": "ext:md"
+  ".txt": "ext:txt"
+dir_as_tags: true
+basename_tokens: true
+min_token_len: 3
+max_tokens: 8
