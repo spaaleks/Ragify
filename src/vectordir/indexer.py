@@ -57,8 +57,13 @@ def _needs_reindex(existing: File, mtime_ns: int, size_bytes: int) -> bool:
     # If we have processed_at, ensure processing happened after the file mtime
     if existing.processed_at is None:
         return True
+    processed_at = existing.processed_at
+    if processed_at.tzinfo is None:
+        processed_at = processed_at.replace(tzinfo=UTC)
+    else:
+        processed_at = processed_at.astimezone(UTC)
     mtime_dt = datetime.fromtimestamp(mtime_ns / 1e9, tz=UTC)
-    return existing.processed_at < mtime_dt
+    return processed_at < mtime_dt
 
 def _upsert_file(session: Session, path: Path, mtime_ns: int, size_bytes: int, mime: str) -> File:
     existing = session.scalar(select(File).where(File.path == str(path)))
@@ -156,8 +161,10 @@ def index_folder_adapter(
                     # normalize tz
                     pa = existing.processed_at
                     if pa.tzinfo is None:
-                        pa = pa.replace(tzinfo=timezone.utc)
-                    mtime_dt = datetime.fromtimestamp(mtime_ns / 1e9, tz=timezone.utc)
+                        pa = pa.replace(tzinfo=UTC)
+                    else:
+                        pa = pa.astimezone(UTC)
+                    mtime_dt = datetime.fromtimestamp(mtime_ns / 1e9, tz=UTC)
                     needs_reindex = pa < mtime_dt
                 else:
                     needs_reindex = True
@@ -165,7 +172,7 @@ def index_folder_adapter(
                     # mark success and skip
                     if getattr(existing, "status", None) != FileStatus.SUCCESS:
                         existing.status = FileStatus.SUCCESS
-                        existing.processed_at = existing.processed_at or datetime.now(timezone.utc)
+                        existing.processed_at = existing.processed_at or datetime.now(UTC)
                         existing.last_error = None
                         session.add(existing)
                         session.commit()
@@ -177,7 +184,7 @@ def index_folder_adapter(
             # retry guard
             if getattr(file_row, "retry_count", 0) >= max_retries:
                 file_row.status = FileStatus.SKIPPED
-                file_row.last_attempt_at = datetime.now(timezone.utc)
+                file_row.last_attempt_at = datetime.now(UTC)
                 session.add(file_row)
                 session.commit()
                 logger.warning("Skipping %s (retries=%d >= max=%d)", p, file_row.retry_count, max_retries)
@@ -185,7 +192,7 @@ def index_folder_adapter(
 
             # mark processing
             file_row.status = FileStatus.PROCESSING
-            file_row.last_attempt_at = datetime.now(timezone.utc)
+            file_row.last_attempt_at = datetime.now(UTC)
             file_row.last_error = None
             session.add(file_row)
             session.commit()
@@ -261,7 +268,7 @@ def index_folder_adapter(
 
                 # success
                 file_row.status = FileStatus.SUCCESS
-                file_row.processed_at = datetime.now(timezone.utc)
+                file_row.processed_at = datetime.now(UTC)
                 file_row.last_error = None
                 session.add(file_row)
                 session.commit()
@@ -272,7 +279,7 @@ def index_folder_adapter(
                 file_row.retry_count = (getattr(file_row, "retry_count", 0) + 1)
                 file_row.status = FileStatus.FAILED
                 file_row.last_error = f"{type(e).__name__}: {e}"
-                file_row.last_attempt_at = datetime.now(timezone.utc)
+                file_row.last_attempt_at = datetime.now(UTC)
                 session.add(file_row)
                 session.commit()
                 tqdm.write(f"[process] {p}: {type(e).__name__}: {e}")
