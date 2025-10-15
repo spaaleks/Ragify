@@ -24,11 +24,14 @@ class OpenAIConfig:
 
 @dataclass
 class ModelConfig:
-    provider: str          # "openai" | "litellm" | "gemini" | "vertex_ai"
+    provider: str          # "openai" | "litellm" | "gemini" | "vertex_ai" | "ollama"
     dim: Optional[int] = 768
     api_key: Optional[str] = None
     project: Optional[str] = None
     location: Optional[str] = None
+    base_url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
     max_tokens: Optional[int] = None
     max_output_tokens: Optional[int] = None
     temperature: Optional[float] = None
@@ -54,6 +57,7 @@ class PdfOcrConfig:
     user: str
     password: str
     timeout: int
+    connect_timeout: int = 10
 
 @dataclass
 class S3Config:
@@ -265,6 +269,9 @@ def _models_from(raw: Dict[str, Any]) -> Dict[str, ModelConfig]:
             api_key=_resolve(d.get("api_key")),
             project=d.get("project"),
             location=d.get("location"),
+            base_url=_resolve(d.get("base_url")),
+            username=_resolve(d.get("username")),
+            password=_resolve(d.get("password")),
             max_tokens=_to_int(d.get("max_tokens")),
             max_output_tokens=_to_int(d.get("max_output_tokens")),
             temperature=_to_float(d.get("temperature")),
@@ -305,6 +312,7 @@ def load_config(path: str) -> AppConfig:
             user=_resolve(pdf_ocr_raw["user"]),
             password=_resolve(pdf_ocr_raw["password"]),
             timeout=int(pdf_ocr_raw.get("timeout", 300)),
+            connect_timeout=int(pdf_ocr_raw.get("connect_timeout", 10)),
         )
 
     s3 = _s3_from((raw.get("global") or {}).get("s3"))

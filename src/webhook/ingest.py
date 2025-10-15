@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from langchain.schema import Document
 
 from vectordir.config import AppConfig, WebhookAdapter, S3Config, ChunkingConfig
-from vectordir.db import make_engine, make_session_factory, session_scope
+from vectordir.db import make_engine, make_session_factory, session_scope, ensure_match_documents_function
 from vectordir.models import Base, File as DBFile, Chunk, FileStatus
 from vectordir.loaders import split_docs, guess_mime, load_pdf_with_ocr
 from vectordir.indexer import _embedding_client  # reuse factory from indexer
@@ -24,10 +24,12 @@ bearer = HTTPBearer(auto_error=False)
 
 # ----------------- helpers -----------------
 
-def _ensure_schema(engine):
+def _ensure_schema(engine, embedding_dim: int):
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector;")
     Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        ensure_match_documents_function(conn, embedding_dim)
 
 def _line_ranges_for_chunks(full_text: str, chunks: List[str]) -> List[Tuple[int, int]]:
     joined = full_text
@@ -56,9 +58,23 @@ def _webhook_or_401(appcfg: AppConfig, name: str, creds: Optional[HTTPAuthorizat
         raise HTTPException(status_code=401, detail="invalid token")
     return wh
 
-def _engine_session(wh: WebhookAdapter):
+def _resolve_embedding_dim(appcfg: AppConfig, adapter: WebhookAdapter) -> int:
+    model_name = adapter.embedding_model or appcfg.global_embedding_model
+    if not model_name:
+        return 768
+    model_spec = appcfg.models.get(model_name)
+    try:
+        dim = int(getattr(model_spec, "dim", 768) or 768)
+    except (TypeError, ValueError):
+        dim = 768
+    return dim if dim > 0 else 768
+
+
+def _engine_session(appcfg: AppConfig, wh: WebhookAdapter):
+    dim = _resolve_embedding_dim(appcfg, wh)
+    os.environ["VECTOR_EMBED_DIM"] = str(dim)
     engine = make_engine(wh.db)
-    _ensure_schema(engine)
+    _ensure_schema(engine, dim)
     Session = make_session_factory(engine)
     return engine, Session
 
@@ -138,7 +154,7 @@ async def ingest_file(
 ):
     appcfg: AppConfig = request.app.state.appcfg
     wh = _webhook_or_401(appcfg, name, creds)
-    _, Session = _engine_session(wh)
+    _, Session = _engine_session(appcfg, wh)
 
     blob = await file.read()
     mime = file.content_type or guess_mime(Path(file.filename))
@@ -167,7 +183,7 @@ async def ingest_json(
 ):
     appcfg: AppConfig = request.app.state.appcfg
     wh = _webhook_or_401(appcfg, name, creds)
-    _, Session = _engine_session(wh)
+    _, Session = _engine_session(appcfg, wh)
 
     if not payload.content:
         raise HTTPException(status_code=400, detail="content missing")
@@ -192,7 +208,7 @@ async def ingest_raw(
 ):
     appcfg: AppConfig = request.app.state.appcfg
     wh = _webhook_or_401(appcfg, name, creds)
-    _, Session = _engine_session(wh)
+    _, Session = _engine_session(appcfg, wh)
 
     blob = await request.body()
     mime = mime or "application/octet-stream"
@@ -227,7 +243,7 @@ def delete_content(
 ):
     appcfg: AppConfig = request.app.state.appcfg
     wh = _webhook_or_401(appcfg, name, creds)
-    _, Session = _engine_session(wh)
+    _, Session = _engine_session(appcfg, wh)
 
     if not key and not key_prefix:
         raise HTTPException(status_code=400, detail="key or key_prefix required")
@@ -254,7 +270,7 @@ def vacuum_orphans(
 ):
     appcfg: AppConfig = request.app.state.appcfg
     wh = _webhook_or_401(appcfg, name, creds)
-    _, Session = _engine_session(wh)
+    _, Session = _engine_session(appcfg, wh)
 
     removed = 0
     with session_scope(Session) as session:

@@ -12,19 +12,23 @@ from sqlalchemy.orm import Session
 from langchain_openai import OpenAIEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_vertexai import VertexAIEmbeddings
+from langchain_community.embeddings import OllamaEmbeddings
 from langchain.schema import Document
 
 from .config import FolderAdapter, AppConfig, S3Config
-from .db import make_engine, make_session_factory, session_scope
+from .ollama import resolve_base_url as _ollama_base_url, build_headers as _ollama_headers
+from .db import make_engine, make_session_factory, session_scope, ensure_match_documents_function
 from .models import Base, File, Chunk, FileStatus
 from .loaders import discover_paths, load_file, split_docs, guess_mime
 
 logger = logging.getLogger("vectordir")
 
-def _ensure_schema(engine):
+def _ensure_schema(engine, embedding_dim: int):
     with engine.begin() as conn:
         conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector;")
     Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        ensure_match_documents_function(conn, embedding_dim)
 
 def _embedding_client(model_name: str, folder: FolderAdapter, appcfg: AppConfig):
     m = appcfg.models[model_name]
@@ -45,6 +49,15 @@ def _embedding_client(model_name: str, folder: FolderAdapter, appcfg: AppConfig)
             project=m.project,
             location=m.location,
         )
+    if m.provider == "ollama":
+        headers = _ollama_headers(m)
+        kwargs = {
+            "model": model_name,
+            "base_url": _ollama_base_url(m),
+        }
+        if headers:
+            kwargs["headers"] = headers
+        return OllamaEmbeddings(**kwargs)
     raise ValueError(f"unsupported provider: {m.provider}")
 
 def _stat_file(p: Path) -> Tuple[int, int]:
@@ -134,7 +147,7 @@ def index_folder_adapter(
 
     # infra
     engine = make_engine(folder.db)
-    _ensure_schema(engine)
+    _ensure_schema(engine, dim)
     Session = make_session_factory(engine)
 
     embeddings = _embedding_client(model_name, folder, appcfg)

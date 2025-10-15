@@ -7,7 +7,7 @@ import logging
 import re
 
 import requests
-from requests.exceptions import Timeout, ConnectionError
+from requests.exceptions import Timeout, ConnectionError, RequestException
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from langchain_community.document_loaders import TextLoader, UnstructuredFileLoader, Docx2txtLoader
@@ -83,7 +83,7 @@ def _call_pdf_ocr(path: Path, appcfg: AppConfig) -> dict:
             appcfg.pdf_ocr.url,
             files=files,
             auth=(appcfg.pdf_ocr.user, appcfg.pdf_ocr.password),
-            timeout=(5, appcfg.pdf_ocr.timeout),
+            timeout=(getattr(appcfg.pdf_ocr, "connect_timeout", 10) or 10, appcfg.pdf_ocr.timeout),
         )
     logger.info("OCR: %s -> %s", path.name, resp.status_code)
     resp.raise_for_status()
@@ -130,7 +130,11 @@ def _rewrite_markdown_images(md: str, pages: List[dict], s3cfg: Optional[S3Confi
     return pattern.sub(repl, md)
 
 def load_pdf_with_ocr(path: Path, appcfg: AppConfig, s3cfg: Optional[S3Config]) -> List[Document]:
-    data = _call_pdf_ocr(path, appcfg)
+    try:
+        data = _call_pdf_ocr(path, appcfg)
+    except RequestException as exc:
+        logger.warning("OCR: request failed for %s (%s); falling back to local PDF loader", path.name, exc)
+        return UnstructuredFileLoader(str(path)).load()
     pages = data.get("pages", [])
     page_url_map = _maybe_upload_ocr_images(pages, s3cfg)
     md_text = data.get("markdown", "")

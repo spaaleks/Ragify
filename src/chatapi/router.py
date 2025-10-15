@@ -8,12 +8,14 @@ from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_vertexai import ChatVertexAI
+from langchain_community.chat_models import ChatOllama
 
 from vectordir.config import AppConfig, FolderAdapter
 from vectordir.db import make_engine, make_session_factory, session_scope
 from vectordir.indexer import _embedding_client
 from chatapi.retrieval import semantic_search
 from vectordir.history import ensure_history_schema, load_history, save_turns
+from vectordir.ollama import resolve_base_url as _ollama_base_url, build_headers as _ollama_headers
 
 router = APIRouter(prefix="/v1", tags=["chat"])
 plain_router = APIRouter(tags=["chat"])
@@ -124,6 +126,16 @@ def _chat_client(model_name: str, folder: Optional[FolderAdapter], appcfg: AppCo
             temperature=0.0,
             streaming=streaming,
         )
+    if m.provider == "ollama":
+        headers = _ollama_headers(m)
+        kwargs = {
+            "model": model_name,
+            "base_url": _ollama_base_url(m),
+            "temperature": 0.0,
+        }
+        if headers:
+            kwargs["headers"] = headers
+        return ChatOllama(**kwargs)
     raise HTTPException(400, f"unsupported chat provider: {m.provider}")
 
 # ---------- prompt helpers ----------
@@ -247,6 +259,9 @@ async def chat_completions(req: ChatCompletionsRequest, request: Request):
         elif m.provider == "vertex_ai":
             if not (m.project and m.location):
                 raise HTTPException(503, "Missing Vertex AI project/location.")
+        elif m.provider == "ollama":
+            # Allow default localhost; optional base_url/credentials handled downstream.
+            pass
         else:
             raise HTTPException(400, f"Unsupported embedding provider: {m.provider}")
         return embed_model

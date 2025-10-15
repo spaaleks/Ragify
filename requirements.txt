@@ -5,6 +5,7 @@ psycopg[binary,pool]
 alembic
 langchain
 langchain-community
+langchain-ollama
 langchain-openai
 langchain-google-vertexai
 langchain_google_genai
